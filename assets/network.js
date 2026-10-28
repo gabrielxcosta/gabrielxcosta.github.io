@@ -1,5 +1,24 @@
-(()=>{'use strict';const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
-function setupCanvas(canvas,render,resize){const ctx=canvas.getContext('2d');if(!ctx)return;let active=false,frame=0,t=0,last=0;function measure(){let r=canvas.getBoundingClientRect();const d=Math.min(devicePixelRatio||1,2);canvas.width=Math.round(r.width*d);canvas.height=Math.round(r.height*d);ctx.setTransform(d,0,0,d,0,0);resize(r.width,r.height);render(ctx,t)}const ro=new ResizeObserver(measure);ro.observe(canvas);function loop(now){if(!active)return;const dt=Math.min(40,now-(last||now));last=now;t+=dt/1000;render(ctx,t);frame=requestAnimationFrame(loop)}const io=new IntersectionObserver(entries=>{active=entries[0].isIntersecting&&!reduced;if(active){last=0;frame=requestAnimationFrame(loop)}else cancelAnimationFrame(frame)});io.observe(canvas);measure();return()=>render(ctx,t)}
-const canvas=document.querySelector('#network-canvas');if(canvas){let W=0,H=0,nodes=[],edges=[],clusters=[],mouse={x:-900,y:-900,tx:-900,ty:-900,active:false};let lastT=0;let seed=941;function rand(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296}const sizes=[16,9,23,12,7,18,10,14];function create(){seed=941;nodes=[];edges=[];clusters=[];const C=W<500?4:6;for(let c=0;c<C;c++){let count=sizes[c];let cx=(.09+.82*rand())*W,cy=rand()*H;let size=45+rand()*53;clusters.push({cx,cy,vy:5+rand()*6,sway:rand()*6.28});for(let j=0;j<count;j++){const ang=rand()*Math.PI*2,rad=Math.sqrt(rand())*size;nodes.push({c,hub:j===0||j===1&&rand()<.55,x:cx+Math.cos(ang)*rad,y:cy+Math.sin(ang)*rad,vx:0,vy:0,degree:0,phase:rand()*6.28})}}for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){const a=nodes[i],b=nodes[j],same=a.c===b.c;let prob=same?((a.hub||b.hub)? .78 : .22):.005;if(rand()<prob){edges.push({i,j,alpha:0});a.degree++;b.degree++}}}
-let initial=true;function resize(w,h){W=w;H=h;create();initial=true}function draw(ctx,t){if(!W||!H)return;ctx.clearRect(0,0,W,H);const dt=Math.max(.005,Math.min(t-lastT,.04));lastT=t;mouse.x+=(mouse.tx-mouse.x)*.045;mouse.y+=(mouse.ty-mouse.y)*.045;if(!reduced){for(const c of clusters){c.cy-=c.vy*dt;if(c.cy< -90)c.cy=H+85;c.cx+=Math.sin(t*.17+c.sway)*.025}for(const n of nodes){const c=clusters[n.c],dx=c.cx-n.x,dy=c.cy-n.y;let ax=dx*.0006,ay=dy*.0006-.005;if(mouse.active){let mx=n.x-mouse.x,my=n.y-mouse.y,dist=Math.hypot(mx,my)||1,f=Math.max(0,1-dist/150);ax+=mx/dist*f*.11;ay+=my/dist*f*.11}n.vx=(n.vx+ax)*.977;n.vy=(n.vy+ay)*.977;n.x+=n.vx;n.y+=n.vy;if(n.y<-100)n.y+=H+180;}}const set=new Set(edges.map(e=>e.i+','+e.j));if(!reduced&&Math.floor(t*8)!==Math.floor((t-dt)*8)){for(let tries=0;tries<25;tries++){const i=Math.floor(rand()*nodes.length),j=Math.floor(rand()*nodes.length);if(i===j)continue;let a=Math.min(i,j),b=Math.max(i,j),key=a+','+b;if(set.has(key))continue;let n=nodes[a],m=nodes[b],dist=Math.hypot(n.x-m.x,n.y-m.y);if(dist<105&&rand()<.25){edges.push({i:a,j:b,alpha:0,dynamic:true});set.add(key)}}}for(let k=edges.length-1;k>=0;k--){const e=edges[k],a=nodes[e.i],b=nodes[e.j],d=Math.hypot(a.x-b.x,a.y-b.y),limit=e.dynamic?125:(a.c===b.c?170:110);const target=d<limit?.29*(1-d/limit):0;e.alpha+=(target-e.alpha)*.06;if(e.dynamic&&d>limit+45){edges.splice(k,1);continue}if(e.alpha<.006)continue;ctx.strokeStyle=`rgba(130,130,130,${e.alpha})`;ctx.lineWidth=.9;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}for(const n of nodes){let rad=n.hub?3+Math.min(8,Math.sqrt(n.degree)*1.8):1.7+Math.min(1.8,Math.sqrt(n.degree)*.35);ctx.fillStyle=n.hub?'rgba(181,39,53,.77)':'rgba(130,130,130,.57)';ctx.beginPath();ctx.arc(n.x,n.y,rad,0,Math.PI*2);ctx.fill()}}setupCanvas(canvas,draw,resize);const pos=e=>{const r=canvas.getBoundingClientRect();mouse.tx=e.clientX-r.left;mouse.ty=e.clientY-r.top;mouse.active=true};canvas.addEventListener('pointermove',pos,{passive:true});canvas.addEventListener('pointerleave',()=>{mouse.active=false;mouse.tx=-900;mouse.ty=-900})}
+(()=>{'use strict';
+/* "A living network" — particles.js, same engine used on networksciencebook.com.
+   Nodes drift slowly upward, nearby nodes connect with faint edges, hover repels. */
+const el=document.getElementById('network-canvas');
+if(!el||typeof particlesJS!=='function')return;
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+particlesJS('network-canvas',{
+  particles:{
+    number:{value:80,density:{enable:true,value_area:350}},
+    color:{value:['#828282','#828282','#828282','#9a9a9a','#b52735']},
+    shape:{type:'circle'},
+    opacity:{value:.6,random:true,anim:{enable:false}},
+    size:{value:3,random:true,anim:{enable:false}},
+    line_linked:{enable:true,distance:120,color:'#828282',opacity:.28,width:1},
+    move:{enable:!reduced,speed:.7,direction:'top',random:true,straight:false,out_mode:'out',bounce:false}
+  },
+  interactivity:{
+    detect_on:'canvas',
+    events:{onhover:{enable:true,mode:'repulse'},onclick:{enable:false},resize:true},
+    modes:{repulse:{distance:90,duration:.4}}
+  },
+  retina_detect:true
+});
 })();
