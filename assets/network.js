@@ -12,66 +12,65 @@
     background: 'transparent',
 
     nodes: {
-      initialCount: 350,
-      maxCount: 950,
-      minSize: 10,
-      maxSize: 40,
-      hubProbability: 0.3,
-      hubMinSize: 25,
-      opacity: 0.84,
-      growthInterval: 1400,
-      growthBatch: 6,
-      growthEnabled: true
+      initialCount: 280,
+      maxCount: 380,
+      minSize: 5,
+      maxSize: 13,
+      hubProbability: 0.09,
+      hubMinSize: 9,
+      opacity: 0.82,
+      growthEnabled: true,
+      growthInterval: 3500,
+      growthBatch: 2
     },
 
     communities: {
-      count: 18,
-      spreadX: 0.075,
+      count: 14,
+      spreadX: 0.085,
       spreadY: 0.14,
-      irregularity: 0.92,
-      drift: 10
+      coreProbability: 0.72,
+      coreScale: 0.45
     },
 
     edges: {
-      localDistance: 155,
-      minNeighbors: 3,
-      maxNeighbors: 8,
-      opacity: 0.42,
-      width: 1.6,
-      bridgeProbability: 0.65,
-      bridgeOpacity: 0.34,
-      growthInterval: 1100,
-      maxNewEdges: 5,
-      maxTotalDegree: 14
+      minNeighbors: 2,
+      maxNeighbors: 5,
+      maxDegree: 10,
+      localDistance: 120,
+      opacity: 0.30,
+      bridgeOpacity: 0.22,
+      width: 0.9,
+      growthInterval: 3000,
+      growthBatch: 2
     },
 
     motion: {
       enabled: true,
-      speed: 0.15,
-      sway: 9,
-      frequency: 0.00038,
-      nodeJitter: 3.5
+      upwardSpeed: 0.20,
+      sway: 7,
+      swayFrequency: 0.00035,
+      nodeJitter: 2.5,
+      nodeFrequency: 0.00028,
+      wrapMargin: 120
     },
 
     centrality: {
       enabled: true,
       low: '#828282',
-      middle: '#c56b76',
+      middle: '#b47b82',
       high: '#b52735',
-      gamma: 0.62,
-      percentile: 0.75,
-      updateInterval: 2400,
-      sampleSources: 160,
-      smoothing: 0.075,
-      zeroColor: '#828282'
+      percentile: 0.90,
+      gamma: 0.72,
+      sampleSources: 90,
+      updateInterval: 3500,
+      smoothing: 0.06
     },
 
     interaction: {
       enabled: true,
-      radius: 190,
-      edgeOpacity: 0.70,
-      nodeOpacity: 1,
-      highlightStrength: 0.30
+      radius: 150,
+      edgeOpacity: 0.75,
+      nodeOpacity: 1
     }
   };
 
@@ -91,7 +90,7 @@
     host.style.overflow = 'hidden';
 
     if (host.getBoundingClientRect().height < 50) {
-      host.style.height = 'clamp(300px, 42vw, 440px)';
+      host.style.height = 'clamp(280px, 38vw, 400px)';
     }
 
     canvas.style.cssText = [
@@ -116,7 +115,6 @@
   let nodes = [];
   let edges = [];
   let communities = [];
-
   let adjacency = [];
   let edgeKeys = new Set();
 
@@ -124,8 +122,8 @@
   let running = true;
   let topologyVersion = 0;
   let centralityVersion = -1;
-  let centralityBusy = false;
 
+  let lastTime = 0;
   let lastNodeGrowth = 0;
   let lastEdgeGrowth = 0;
   let lastCentralityUpdate = 0;
@@ -148,56 +146,52 @@
   const lerp = (a, b, t) =>
     a + (b - a) * t;
 
-  const gaussian = () => {
+  function gaussian() {
     const u = Math.max(Math.random(), 1e-8);
     const v = Math.random();
 
     return Math.sqrt(-2 * Math.log(u)) *
       Math.cos(2 * Math.PI * v);
-  };
+  }
 
   const anchors = [
-    [0.00, 0.04],
-    [0.17, 0.02],
-    [0.35, 0.10],
-    [0.56, 0.04],
-    [0.77, 0.03],
-    [1.00, 0.10],
+    [0.04, 0.10],
+    [0.26, 0.06],
+    [0.52, 0.13],
+    [0.78, 0.06],
+    [0.97, 0.22],
 
-    [0.04, 0.38],
-    [0.24, 0.34],
-    [0.46, 0.45],
-    [0.68, 0.32],
-    [0.88, 0.43],
-    [1.00, 0.58],
+    [0.08, 0.46],
+    [0.33, 0.39],
+    [0.60, 0.51],
+    [0.87, 0.42],
 
-    [0.00, 0.88],
-    [0.17, 0.94],
-    [0.37, 0.85],
-    [0.58, 0.96],
-    [0.79, 0.86],
-    [1.00, 0.96]
+    [0.02, 0.87],
+    [0.24, 0.94],
+    [0.49, 0.84],
+    [0.75, 0.93],
+    [0.98, 0.84]
   ];
 
-  const hexToRgb = hex => {
-    const value = hex.replace('#', '');
+  function hexToRgb(hex) {
+    const h = hex.replace('#', '');
 
     return [
-      parseInt(value.slice(0, 2), 16),
-      parseInt(value.slice(2, 4), 16),
-      parseInt(value.slice(4, 6), 16)
+      parseInt(h.slice(0, 2), 16),
+      parseInt(h.slice(2, 4), 16),
+      parseInt(h.slice(4, 6), 16)
     ];
-  };
+  }
 
-  const colorLow = hexToRgb(config.centrality.low);
-  const colorMiddle = hexToRgb(config.centrality.middle);
-  const colorHigh = hexToRgb(config.centrality.high);
+  const lowRGB = hexToRgb(config.centrality.low);
+  const midRGB = hexToRgb(config.centrality.middle);
+  const highRGB = hexToRgb(config.centrality.high);
 
-  function interpolateColor(a, b, t) {
+  function blendColor(a, b, t) {
     return [
-      Math.round(lerp(a[0], b[0], t)),
-      Math.round(lerp(a[1], b[1], t)),
-      Math.round(lerp(a[2], b[2], t))
+      lerp(a[0], b[0], t),
+      lerp(a[1], b[1], t),
+      lerp(a[2], b[2], t)
     ];
   }
 
@@ -205,16 +199,12 @@
     const t = clamp(value, 0, 1);
 
     if (t <= 0.5) {
-      return interpolateColor(
-        colorLow,
-        colorMiddle,
-        t * 2
-      );
+      return blendColor(lowRGB, midRGB, t * 2);
     }
 
-    return interpolateColor(
-      colorMiddle,
-      colorHigh,
+    return blendColor(
+      midRGB,
+      highRGB,
       (t - 0.5) * 2
     );
   }
@@ -227,13 +217,14 @@
 
       communities.push({
         id: i,
-        x: anchor[0] * W + gaussian() * W * 0.018,
-        y: anchor[1] * H + gaussian() * H * 0.025,
+        x: anchor[0] * W,
+        y: anchor[1] * H,
         phase: random(0, Math.PI * 2),
-        speed: random(0.55, 1.35),
-        sx: random(0.50, 1.25),
-        sy: random(0.50, 1.20),
+        speed: random(0.75, 1.25),
         angle: random(0, Math.PI * 2),
+        sx: random(0.65, 1.20),
+        sy: random(0.65, 1.20),
+        offsetY: 0,
         members: []
       });
     }
@@ -246,45 +237,45 @@
       return random(c.hubMinSize, c.maxSize);
     }
 
-    const u = Math.pow(Math.random(), 1.25);
+    const u = Math.pow(Math.random(), 1.15);
 
-    return c.minSize +
-      u * (c.hubMinSize - c.minSize);
+    return lerp(c.minSize, c.hubMinSize, u);
   }
 
-  function createNode(communityId, nearNode = null) {
+  function createNode(communityId, reference = null) {
     const community = communities[communityId];
 
-    const ca = Math.cos(community.angle);
-    const sa = Math.sin(community.angle);
+    let x;
+    let y;
 
-    const scale = Math.random() < 0.76
-      ? random(0.15, 0.60)
-      : random(0.65, 1.35);
-
-    const dx = gaussian() *
-      W * config.communities.spreadX *
-      community.sx * scale;
-
-    const dy = gaussian() *
-      H * config.communities.spreadY *
-      community.sy * scale;
-
-    let x = community.x + dx * ca - dy * sa;
-    let y = community.y + dx * sa + dy * ca;
-
-    if (nearNode) {
+    if (reference) {
       const angle = random(0, Math.PI * 2);
-      const distance = random(16, 65);
+      const distance = random(15, 55);
 
-      x = nearNode.x + Math.cos(angle) * distance;
-      y = nearNode.y + Math.sin(angle) * distance;
+      x = reference.x + Math.cos(angle) * distance;
+      y = reference.y + Math.sin(angle) * distance;
+    } else {
+      const core =
+        Math.random() < config.communities.coreProbability;
+
+      const scale = core
+        ? random(0.15, config.communities.coreScale)
+        : random(0.55, 1.30);
+
+      const dx = gaussian() *
+        W * config.communities.spreadX *
+        community.sx * scale;
+
+      const dy = gaussian() *
+        H * config.communities.spreadY *
+        community.sy * scale;
+
+      const ca = Math.cos(community.angle);
+      const sa = Math.sin(community.angle);
+
+      x = community.x + dx * ca - dy * sa;
+      y = community.y + dx * sa + dy * ca;
     }
-
-    x = clamp(x, -W * 0.025, W * 1.025);
-    y = clamp(y, -H * 0.05, H * 1.05);
-
-    const radius = nodeRadius();
 
     const node = {
       id: nodes.length,
@@ -295,20 +286,18 @@
       px: x,
       py: y,
 
-      radius,
+      radius: nodeRadius(),
 
       phase: random(0, Math.PI * 2),
       phase2: random(0, Math.PI * 2),
-
-      speed: random(0.65, 1.45),
-      drift: random(0.55, 1.35),
+      speed: random(0.7, 1.3),
 
       betweenness: 0,
+      centrality: 0,
       targetCentrality: 0,
-      visualCentrality: 0,
 
-      color: [...colorLow],
-      targetColor: [...colorLow]
+      color: [...lowRGB],
+      targetColor: [...lowRGB]
     };
 
     nodes.push(node);
@@ -331,7 +320,7 @@
     const total = config.nodes.initialCount;
 
     const weights = communities.map(() =>
-      random(0.70, 1.45)
+      random(0.7, 1.4)
     );
 
     const sum = weights.reduce((a, b) => a + b, 0);
@@ -340,19 +329,19 @@
       Math.floor(total * w / sum)
     );
 
-    let remainder =
+    let remaining =
       total - counts.reduce((a, b) => a + b, 0);
 
-    while (remainder > 0) {
+    while (remaining > 0) {
       counts[randomInt(0, counts.length - 1)]++;
-      remainder--;
+      remaining--;
     }
 
-    for (let i = 0; i < communities.length; i++) {
+    communities.forEach((community, i) => {
       for (let j = 0; j < counts[i]; j++) {
-        createNode(i);
+        createNode(community.id);
       }
-    }
+    });
   }
 
   function distance(a, b) {
@@ -364,14 +353,13 @@
 
     const u = Math.min(a, b);
     const v = Math.max(a, b);
-
     const key = `${u}:${v}`;
 
     if (edgeKeys.has(key)) return false;
 
     if (
-      adjacency[u].size >= config.edges.maxTotalDegree ||
-      adjacency[v].size >= config.edges.maxTotalDegree
+      adjacency[u].size >= config.edges.maxDegree ||
+      adjacency[v].size >= config.edges.maxDegree
     ) {
       return false;
     }
@@ -387,7 +375,7 @@
       bridge,
       opacity: bridge
         ? config.edges.bridgeOpacity
-        : config.edges.opacity * random(0.65, 1.30)
+        : config.edges.opacity * random(0.75, 1.15)
     });
 
     topologyVersion++;
@@ -395,7 +383,7 @@
     return true;
   }
 
-  function nearestCandidates(node, candidates, limit = 12) {
+  function nearestCandidates(node, candidates, limit = 10) {
     return candidates
       .filter(other => other.id !== node.id)
       .map(other => ({
@@ -407,17 +395,17 @@
   }
 
   function connectNode(node) {
-    const community = communities[node.community];
+    const group = communities[node.community];
 
     const candidates = nearestCandidates(
       node,
-      community.members
+      group.members
         .filter(id => id !== node.id)
         .map(id => nodes[id]),
-      config.edges.maxNeighbors + 8
+      12
     );
 
-    const targetDegree = randomInt(
+    const target = randomInt(
       config.edges.minNeighbors,
       config.edges.maxNeighbors
     );
@@ -425,10 +413,10 @@
     let connected = 0;
 
     for (const candidate of candidates) {
-      if (connected >= targetDegree) break;
+      if (connected >= target) break;
 
       if (
-        candidate.distance <= config.edges.localDistance ||
+        candidate.distance < config.edges.localDistance ||
         connected < config.edges.minNeighbors
       ) {
         if (addEdge(node.id, candidate.id)) {
@@ -443,13 +431,13 @@
 
     for (let i = 0; i < communities.length; i++) {
       for (let j = i + 1; j < communities.length; j++) {
-        const a = communities[i];
-        const b = communities[j];
-
         links.push({
           a: i,
           b: j,
-          distance: Math.hypot(a.x - b.x, a.y - b.y)
+          distance: Math.hypot(
+            communities[i].x - communities[j].x,
+            communities[i].y - communities[j].y
+          )
         });
       }
     }
@@ -476,12 +464,12 @@
 
       for (const a of A) {
         if (
-          adjacency[a].size >= config.edges.maxTotalDegree
+          adjacency[a].size >= config.edges.maxDegree
         ) continue;
 
         for (const b of B) {
           if (
-            adjacency[b].size >= config.edges.maxTotalDegree
+            adjacency[b].size >= config.edges.maxDegree
           ) continue;
 
           const d = distance(nodes[a], nodes[b]);
@@ -494,7 +482,7 @@
         }
       }
 
-      if (bestA < 0 || bestB < 0) return false;
+      if (bestA < 0) return false;
 
       return addEdge(bestA, bestB, true);
     }
@@ -511,10 +499,7 @@
     }
 
     for (const link of links) {
-      if (
-        Math.random() <
-        config.edges.bridgeProbability * 0.22
-      ) {
+      if (Math.random() < 0.12) {
         connectClosest(link.a, link.b);
       }
     }
@@ -523,15 +508,10 @@
   function createInitialEdges() {
     edges = [];
     edgeKeys = new Set();
-
     adjacency = nodes.map(() => new Set());
 
-    for (const community of communities) {
-      const members = community.members.map(id => nodes[id]);
-
-      for (const node of members) {
-        connectNode(node);
-      }
+    for (const node of nodes) {
+      connectNode(node);
     }
 
     connectCommunities();
@@ -556,12 +536,12 @@
         communities.length - 1
       );
 
-      const community = communities[communityId];
+      const group = communities[communityId];
 
-      const reference = community.members.length
+      const reference = group.members.length
         ? nodes[
-            community.members[
-              randomInt(0, community.members.length - 1)
+            group.members[
+              randomInt(0, group.members.length - 1)
             ]
           ]
         : null;
@@ -573,96 +553,43 @@
       if (reference) {
         addEdge(node.id, reference.id);
       }
-
-      if (Math.random() < 0.35) {
-        const other = communities
-          .filter(c => c.id !== communityId)
-          .sort((a, b) =>
-            Math.hypot(
-              a.x - community.x,
-              a.y - community.y
-            ) -
-            Math.hypot(
-              b.x - community.x,
-              b.y - community.y
-            )
-          )[0];
-
-        if (other && other.members.length) {
-          const candidates = nearestCandidates(
-            node,
-            other.members.map(id => nodes[id]),
-            4
-          );
-
-          if (candidates.length) {
-            addEdge(
-              node.id,
-              candidates[0].id,
-              true
-            );
-          }
-        }
-      }
     }
   }
 
   function addNewEdges() {
-    if (!nodes.length) return;
-
-    const amount = randomInt(
-      1,
-      config.edges.maxNewEdges
-    );
-
-    for (let i = 0; i < amount; i++) {
+    for (let i = 0; i < config.edges.growthBatch; i++) {
       const node = nodes[randomInt(0, nodes.length - 1)];
 
       if (
-        adjacency[node.id].size >=
-        config.edges.maxTotalDegree
+        adjacency[node.id].size >= config.edges.maxDegree
       ) continue;
 
-      const crossCommunity = Math.random() < 0.20;
+      const crossCommunity = Math.random() < 0.15;
 
-      let candidates;
-
-      if (crossCommunity) {
-        candidates = nodes.filter(n =>
-          n.community !== node.community &&
-          adjacency[n.id].size <
-            config.edges.maxTotalDegree &&
-          !adjacency[node.id].has(n.id)
-        );
-      } else {
-        candidates = communities[node.community]
-          .members
-          .map(id => nodes[id])
-          .filter(n =>
-            n.id !== node.id &&
-            adjacency[n.id].size <
-              config.edges.maxTotalDegree &&
-            !adjacency[node.id].has(n.id)
-          );
-      }
+      const candidates = nodes.filter(n =>
+        n.id !== node.id &&
+        !adjacency[node.id].has(n.id) &&
+        adjacency[n.id].size < config.edges.maxDegree &&
+        (
+          crossCommunity
+            ? n.community !== node.community
+            : n.community === node.community
+        )
+      );
 
       if (!candidates.length) continue;
 
       const nearby = nearestCandidates(
         node,
         candidates,
-        8
+        5
       );
 
       if (!nearby.length) continue;
 
-      const selection = nearby[
-        randomInt(0, Math.min(3, nearby.length - 1))
-      ];
-
       addEdge(
         node.id,
-        selection.id,
+        nearby[0].id,
         crossCommunity
       );
     }
@@ -670,7 +597,6 @@
 
   function calculateBetweenness() {
     const N = nodes.length;
-
     if (N < 3) return;
 
     const sampleCount = Math.min(
@@ -678,9 +604,7 @@
       config.centrality.sampleSources
     );
 
-    const sources = [];
-
-    const shuffled = Array.from(
+    const sources = Array.from(
       { length: N },
       (_, i) => i
     );
@@ -688,17 +612,15 @@
     for (let i = N - 1; i > 0; i--) {
       const j = randomInt(0, i);
 
-      [shuffled[i], shuffled[j]] =
-        [shuffled[j], shuffled[i]];
-    }
-
-    for (let i = 0; i < sampleCount; i++) {
-      sources.push(shuffled[i]);
+      [sources[i], sources[j]] =
+        [sources[j], sources[i]];
     }
 
     const CB = new Float64Array(N);
 
-    for (const s of sources) {
+    for (let k = 0; k < sampleCount; k++) {
+      const s = sources[k];
+
       const stack = [];
       const pred = Array.from(
         { length: N },
@@ -715,7 +637,6 @@
 
       for (let head = 0; head < queue.length; head++) {
         const v = queue[head];
-
         stack.push(v);
 
         for (const w of adjacency[v]) {
@@ -754,55 +675,50 @@
 
     const values = [];
 
-    for (let i = 0; i < N; i++) {
-      const value = CB[i] * normalization;
+    nodes.forEach((node, i) => {
+      node.betweenness = CB[i] * normalization;
 
-      nodes[i].betweenness = value;
-
-      if (value > 0) {
-        values.push(value);
+      if (node.betweenness > 0) {
+        values.push(node.betweenness);
       }
-    }
+    });
 
     values.sort((a, b) => a - b);
 
-    const percentileIndex = Math.floor(
+    const index = Math.floor(
       (values.length - 1) *
       config.centrality.percentile
     );
 
     const threshold = values.length
-      ? values[Math.max(0, percentileIndex)]
+      ? values[Math.max(0, index)]
       : 1;
 
     for (const node of nodes) {
-      let normalized = 0;
+      const t = node.betweenness > 0
+        ? Math.pow(
+            clamp(
+              node.betweenness / (threshold || 1),
+              0,
+              1
+            ),
+            config.centrality.gamma
+          )
+        : 0;
 
-      if (node.betweenness > 0) {
-        normalized = Math.pow(
-          clamp(
-            node.betweenness / (threshold || 1),
-            0,
-            1
-          ),
-          config.centrality.gamma
-        );
-      }
-
-      node.targetCentrality = normalized;
-      node.targetColor = centralityColor(normalized);
+      node.targetCentrality = t;
+      node.targetColor = centralityColor(t);
     }
 
     centralityVersion = topologyVersion;
   }
 
-  function updateDynamicColors() {
-    for (const node of nodes) {
-      const smoothing =
-        config.centrality.smoothing;
+  function updateColors() {
+    const smoothing = config.centrality.smoothing;
 
-      node.visualCentrality = lerp(
-        node.visualCentrality,
+    for (const node of nodes) {
+      node.centrality = lerp(
+        node.centrality,
         node.targetCentrality,
         smoothing
       );
@@ -817,57 +733,91 @@
     }
   }
 
-  function updatePositions(t) {
+  function updatePositions(t, dt) {
     const motion = config.motion;
+    const animate = motion.enabled && !reducedMotion;
 
-    for (const n of nodes) {
-      if (!motion.enabled || reducedMotion) {
-        n.px = n.x;
-        n.py = n.y;
+    for (const group of communities) {
+      if (animate) {
+        group.offsetY -=
+          motion.upwardSpeed * group.speed * dt / 16.67;
+
+        const margin = motion.wrapMargin;
+        const cycle = H + margin * 2;
+
+        if (group.offsetY < -cycle) {
+          group.offsetY += cycle;
+        }
+      }
+    }
+
+    for (const node of nodes) {
+      const group = communities[node.community];
+
+      if (!animate) {
+        node.px = node.x;
+        node.py = node.y;
         continue;
       }
 
-      const c = communities[n.community];
-      const wave = t * motion.frequency * c.speed;
+      const wave =
+        t * motion.swayFrequency * group.speed;
 
       const swayX =
-        Math.sin(wave + c.phase) *
+        Math.sin(wave + group.phase) *
         motion.sway;
-
-      const swayY =
-        Math.cos(wave * 0.73 + c.phase) *
-        motion.sway * 0.48;
 
       const localX =
         Math.sin(
-          t * 0.00034 * n.speed + n.phase
+          t * motion.nodeFrequency *
+          node.speed + node.phase
         ) * motion.nodeJitter;
 
       const localY =
         Math.cos(
-          t * 0.00028 * n.drift + n.phase2
+          t * motion.nodeFrequency * 0.8 +
+          node.phase2
         ) * motion.nodeJitter;
 
-      const rise =
-        Math.sin(
-          t * 0.00013 * n.drift + n.phase
-        ) * motion.speed * 16;
+      let y = node.y + group.offsetY;
 
-      n.px = n.x + swayX + localX;
-      n.py = n.y + swayY + localY - rise;
+      const margin = motion.wrapMargin;
+      const cycle = H + margin * 2;
+
+      y = (
+        ((y + margin) % cycle + cycle) % cycle
+      ) - margin;
+
+      node.px = node.x + swayX + localX;
+      node.py = y + localY;
     }
   }
 
   function drawEdges() {
-    ctx.lineWidth = config.edges.width;
-
-    for (const e of edges) {
-      const a = nodes[e.a];
-      const b = nodes[e.b];
+    for (const edge of edges) {
+      const a = nodes[edge.a];
+      const b = nodes[edge.b];
 
       if (!a || !b) continue;
 
-      let opacity = e.opacity;
+      const d = Math.hypot(
+        a.px - b.px,
+        a.py - b.py
+      );
+
+      if (d > Math.max(W, H) * 0.65) {
+        continue;
+      }
+
+      const strength = Math.max(
+        a.centrality,
+        b.centrality
+      );
+
+      const color = centralityColor(strength);
+
+      let opacity =
+        edge.opacity + strength * 0.20;
 
       if (mouse.active && config.interaction.enabled) {
         const da = Math.hypot(
@@ -882,84 +832,74 @@
 
         const proximity = Math.min(da, db);
 
-        if (
-          proximity <
-          config.interaction.radius
-        ) {
-          const strength =
-            1 -
-            proximity / config.interaction.radius;
+        if (proximity < config.interaction.radius) {
+          const influence =
+            1 - proximity / config.interaction.radius;
 
           opacity = Math.max(
             opacity,
-            strength *
+            influence *
               config.interaction.edgeOpacity
           );
         }
       }
-
-      const strength = Math.max(
-        a.visualCentrality,
-        b.visualCentrality
-      );
-
-      const [r, g, blue] = centralityColor(strength);
-
-      const visibleOpacity = clamp(
-        opacity + strength * 0.28,
-        0,
-        0.85
-      );
 
       ctx.beginPath();
       ctx.moveTo(a.px, a.py);
       ctx.lineTo(b.px, b.py);
 
       ctx.lineWidth =
-        config.edges.width + strength * 1.1;
+        config.edges.width + strength * 0.6;
 
-      ctx.strokeStyle =
-        `rgba(${r},${g},${blue},${visibleOpacity})`;
+      ctx.strokeStyle = `rgba(
+        ${Math.round(color[0])},
+        ${Math.round(color[1])},
+        ${Math.round(color[2])},
+        ${clamp(opacity, 0, 0.85)}
+      )`;
 
       ctx.stroke();
     }
   }
 
   function drawNodes() {
-    for (const n of nodes) {
+    for (const node of nodes) {
       let opacity = config.nodes.opacity;
 
       if (mouse.active && config.interaction.enabled) {
-        const d = Math.hypot(
-          n.px - mouse.x,
-          n.py - mouse.y
+        const distance = Math.hypot(
+          node.px - mouse.x,
+          node.py - mouse.y
         );
 
-        if (d < config.interaction.radius) {
-          const strength =
-            1 - d / config.interaction.radius;
+        if (distance < config.interaction.radius) {
+          const influence =
+            1 - distance / config.interaction.radius;
 
-          opacity += strength *
-            (config.interaction.nodeOpacity - opacity);
+          opacity = lerp(
+            opacity,
+            config.interaction.nodeOpacity,
+            influence
+          );
         }
       }
-
-      const r = Math.round(n.color[0]);
-      const g = Math.round(n.color[1]);
-      const b = Math.round(n.color[2]);
 
       ctx.beginPath();
 
       ctx.arc(
-        n.px,
-        n.py,
-        n.radius,
+        node.px,
+        node.py,
+        node.radius,
         0,
         Math.PI * 2
       );
 
-      ctx.fillStyle =
-        `rgba(${r},${g},${b},${clamp(opacity, 0, 1)})`;
+      ctx.fillStyle = `rgba(
+        ${Math.round(node.color[0])},
+        ${Math.round(node.color[1])},
+        ${Math.round(node.color[2])},
+        ${opacity}
+      )`;
 
       ctx.fill();
     }
@@ -988,38 +928,35 @@
       config.centrality.enabled &&
       topologyVersion !== centralityVersion &&
       t - lastCentralityUpdate >=
-        config.centrality.updateInterval &&
-      !centralityBusy
+        config.centrality.updateInterval
     ) {
-      centralityBusy = true;
-
-      try {
-        calculateBetweenness();
-      } finally {
-        centralityBusy = false;
-        lastCentralityUpdate = t;
-      }
+      calculateBetweenness();
+      lastCentralityUpdate = t;
     }
   }
 
   function render(t) {
     if (!running) return;
 
+    const dt = lastTime
+      ? clamp(t - lastTime, 0, 50)
+      : 16.67;
+
+    lastTime = t;
+
     ctx.clearRect(0, 0, W, H);
 
-    if (
-      config.background !== 'transparent'
-    ) {
+    if (config.background !== 'transparent') {
       ctx.fillStyle = config.background;
       ctx.fillRect(0, 0, W, H);
     }
 
     updateTopology(t);
-    updatePositions(t);
-    updateDynamicColors();
+    updatePositions(t, dt);
+    updateColors();
 
-    drawNodes();
     drawEdges();
+    drawNodes();
 
     if (!reducedMotion) {
       frame = requestAnimationFrame(render);
@@ -1038,12 +975,10 @@
       calculateBetweenness();
 
       for (const node of nodes) {
-        node.visualCentrality =
+        node.centrality =
           node.targetCentrality;
 
-        node.color = [
-          ...node.targetColor
-        ];
+        node.color = [...node.targetColor];
       }
     }
   }
@@ -1075,11 +1010,7 @@
     canvas.width = Math.round(W * dpr);
     canvas.height = Math.round(H * dpr);
 
-    ctx.setTransform(
-      dpr, 0,
-      0, dpr,
-      0, 0
-    );
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     rebuildNetwork();
 
@@ -1137,10 +1068,7 @@
       onPointerLeave
     );
 
-    if (
-      canvas !== host &&
-      canvas.parentNode
-    ) {
+    if (canvas !== host && canvas.parentNode) {
       canvas.remove();
     }
 
@@ -1149,9 +1077,12 @@
 
   resize();
 
-  lastNodeGrowth = performance.now();
-  lastEdgeGrowth = performance.now();
-  lastCentralityUpdate = performance.now();
+  const now = performance.now();
 
-  render(performance.now());
+  lastTime = now;
+  lastNodeGrowth = now;
+  lastEdgeGrowth = now;
+  lastCentralityUpdate = now;
+
+  render(now);
 })();
