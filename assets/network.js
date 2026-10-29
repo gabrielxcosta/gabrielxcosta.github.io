@@ -5,49 +5,35 @@
   const host = document.querySelector('#network-canvas');
   if (!host) return;
 
-  // ============================================================
-  // CONFIGURATION — ORGANIC NETWORK
-  // ============================================================
-
   const config = {
     color: '#828282',
     background: 'transparent',
 
     nodes: {
-      count: 175,
-
-      // Tamanhos em pixels CSS
-      minSize: 2.2,
-      maxSize: 8.5,
-
-      // Distribuição não uniforme dos tamanhos
-      hubProbability: 0.10,
-      hubMinSize: 5.5,
-      opacity: 0.77
+      count: 350,
+      minSize: 4.5,
+      maxSize: 11.5,
+      hubProbability: 0.12,
+      hubMinSize: 7.5,
+      opacity: 0.85
     },
 
     communities: {
       count: 13,
-      minNodes: 7,
-      maxNodes: 24,
-
-      // Dispersão irregular em torno dos centros
+      minNodes: 15,
+      maxNodes: 42,
       spreadX: 0.085,
       spreadY: 0.16,
-
-      // 0 = distribuição regular; 1 = muito irregular
-      irregularity: 0.82
+      irregularity: 0.90
     },
 
     edges: {
       localDistance: 135,
-      maxNeighbors: 6,
-      opacity: 0.25,
+      maxNeighbors: 7,
+      opacity: 0.23,
       width: 0.75,
-
-      // Pontes esparsas entre fragmentos
-      bridgeProbability: 0.34,
-      bridgeOpacity: 0.14
+      bridgeProbability: 0.55,
+      bridgeOpacity: 0.16
     },
 
     motion: {
@@ -63,6 +49,12 @@
       radius: 145,
       edgeOpacity: 0.75,
       nodeOpacity: 1
+    },
+
+    centrality: {
+      low: '#828282',
+      high: '#b52735',
+      gamma: 0.65
     }
   };
 
@@ -70,13 +62,12 @@
     '(prefers-reduced-motion: reduce)'
   ).matches;
 
-  // Prevent duplicate animations after reinjection.
   if (host.__organicNetworkDestroy) {
     host.__organicNetworkDestroy();
   }
 
   let canvas;
-  let wrapper = host;
+  const wrapper = host;
 
   if (host.tagName === 'CANVAS') {
     canvas = host;
@@ -112,6 +103,7 @@
   let nodes = [];
   let edges = [];
   let communities = [];
+  let edgeKeys = new Set();
   let frame = 0;
   let running = true;
 
@@ -135,16 +127,12 @@
       Math.cos(2 * Math.PI * v);
   };
 
-  // Organic community centers across the entire canvas.
-  // Deliberately asymmetric: no grid-like arrangement.
   const anchors = [
     [0.02, 0.08], [0.25, 0.06],
     [0.49, 0.12], [0.80, 0.04],
     [0.98, 0.18],
-
     [0.09, 0.42], [0.40, 0.39],
     [0.72, 0.43], [0.95, 0.56],
-
     [0.02, 0.88], [0.27, 0.94],
     [0.62, 0.88], [0.96, 0.95]
   ];
@@ -159,10 +147,8 @@
         id: i,
         x: anchor[0] * W + gaussian() * W * 0.025,
         y: anchor[1] * H + gaussian() * H * 0.035,
-
         phase: random(0, Math.PI * 2),
         speed: random(0.65, 1.3),
-
         sx: random(0.55, 1.2),
         sy: random(0.55, 1.2)
       });
@@ -176,8 +162,6 @@
       return random(c.hubMinSize, c.maxSize);
     }
 
-    // Skewed distribution with visible smaller nodes
-    // and a meaningful intermediate-size population.
     const u = Math.pow(Math.random(), 1.35);
 
     return c.minSize +
@@ -201,6 +185,7 @@
     );
 
     const weightSum = weights.reduce((a, b) => a + b, 0);
+
     const counts = weights.map(w =>
       Math.max(3, Math.floor(total * w / weightSum))
     );
@@ -215,8 +200,6 @@
 
     for (const community of communities) {
       const count = counts[community.id];
-
-      // Anisotropic clouds: elongated, organic fragments.
       const angle = random(0, Math.PI * 2);
       const ca = Math.cos(angle);
       const sa = Math.sin(angle);
@@ -232,7 +215,6 @@
           H * config.communities.spreadY *
           community.sy;
 
-        // Mixture of compact core and irregular outskirts.
         const scale = Math.random() < 0.72
           ? random(0.20, 0.65)
           : random(0.70, 1.50);
@@ -243,24 +225,24 @@
         const rx = dx * ca - dy * sa;
         const ry = dx * sa + dy * ca;
 
-        const x = community.x + rx * (0.7 + irregular * 0.3);
-        const y = community.y + ry * (0.7 + irregular * 0.3);
+        const x = community.x +
+          rx * (0.7 + irregular * 0.3);
+
+        const y = community.y +
+          ry * (0.7 + irregular * 0.3);
 
         nodes.push({
           id: nodes.length,
           community: community.id,
-
           x,
           y,
-
           radius: nodeRadius(),
-
+          betweenness: 0,
+          fillColor: config.centrality.low,
           phase: random(0, Math.PI * 2),
           phase2: random(0, Math.PI * 2),
-
           speed: random(0.6, 1.4),
           drift: random(0.5, 1.4),
-
           px: x,
           py: y
         });
@@ -277,7 +259,6 @@
 
     const u = Math.min(a, b);
     const v = Math.max(a, b);
-
     const key = u + ':' + v;
 
     if (edgeKeys.has(key)) return;
@@ -294,7 +275,111 @@
     });
   }
 
-  let edgeKeys = new Set();
+  function calculateBetweenness() {
+    const N = nodes.length;
+    const adj = Array.from({ length: N }, () => []);
+
+    for (const e of edges) {
+      adj[e.a].push(e.b);
+      adj[e.b].push(e.a);
+    }
+
+    const CB = new Float64Array(N);
+
+    for (let s = 0; s < N; s++) {
+      const stack = [];
+      const pred = Array.from({ length: N }, () => []);
+      const sigma = new Float64Array(N);
+      const dist = new Int32Array(N).fill(-1);
+
+      sigma[s] = 1;
+      dist[s] = 0;
+
+      const queue = [s];
+
+      for (let head = 0; head < queue.length; head++) {
+        const v = queue[head];
+        stack.push(v);
+
+        for (const w of adj[v]) {
+          if (dist[w] < 0) {
+            dist[w] = dist[v] + 1;
+            queue.push(w);
+          }
+
+          if (dist[w] === dist[v] + 1) {
+            sigma[w] += sigma[v];
+            pred[w].push(v);
+          }
+        }
+      }
+
+      const delta = new Float64Array(N);
+
+      while (stack.length) {
+        const w = stack.pop();
+
+        for (const v of pred[w]) {
+          delta[v] +=
+            (sigma[v] / sigma[w]) * (1 + delta[w]);
+        }
+
+        if (w !== s) {
+          CB[w] += delta[w];
+        }
+      }
+    }
+
+    const norm = N > 2
+      ? (N - 1) * (N - 2)
+      : 1;
+
+    nodes.forEach((n, i) => {
+      n.betweenness = CB[i] / norm;
+    });
+  }
+
+  function hexToRgb(hex) {
+    const value = hex.replace('#', '');
+
+    return [
+      parseInt(value.slice(0, 2), 16),
+      parseInt(value.slice(2, 4), 16),
+      parseInt(value.slice(4, 6), 16)
+    ];
+  }
+
+  function getNodeColor(betweenness, maxBetweenness) {
+    const t = Math.pow(
+      clamp(betweenness / (maxBetweenness || 1), 0, 1),
+      config.centrality.gamma
+    );
+
+    const start = hexToRgb(config.centrality.low);
+    const end = hexToRgb(config.centrality.high);
+
+    const rgb = start.map((v, i) =>
+      Math.round(v + (end[i] - v) * t)
+    );
+
+    return `rgb(${rgb.join(',')})`;
+  }
+
+  function updateCentralityColors() {
+    calculateBetweenness();
+
+    const maxBetweenness = Math.max(
+      0,
+      ...nodes.map(n => n.betweenness)
+    );
+
+    nodes.forEach(n => {
+      n.fillColor = getNodeColor(
+        n.betweenness,
+        maxBetweenness
+      );
+    });
+  }
 
   function createEdges() {
     edges = [];
@@ -304,7 +389,6 @@
       nodes.filter(n => n.community === c.id)
     );
 
-    // Geometrically constrained local network.
     for (const group of byCommunity) {
       for (const node of group) {
         const candidates = group
@@ -335,8 +419,6 @@
       }
     }
 
-    // Bridges between nearby communities, preserving
-    // the appearance of sparse connected fragments.
     for (let i = 0; i < communities.length; i++) {
       const nearby = communities
         .filter(c => c.id !== i)
@@ -354,7 +436,9 @@
         if (
           Math.random() >
           config.edges.bridgeProbability
-        ) continue;
+        ) {
+          continue;
+        }
 
         const A = byCommunity[i];
         const B = byCommunity[target.id];
@@ -380,6 +464,8 @@
         addEdge(bestA.id, bestB.id, true);
       }
     }
+
+    updateCentralityColors();
   }
 
   function updatePositions(t) {
@@ -393,10 +479,8 @@
       }
 
       const c = communities[n.community];
-
       const wave = t * motion.frequency * c.speed;
 
-      // Slow collective drift without destroying clusters.
       const swayX =
         Math.sin(wave + c.phase) * motion.sway;
 
@@ -404,7 +488,6 @@
         Math.cos(wave * 0.73 + c.phase) *
         motion.sway * 0.48;
 
-      // Individual low-frequency oscillations.
       const localX =
         Math.sin(t * 0.00034 * n.speed + n.phase) *
         motion.nodeJitter;
@@ -413,7 +496,6 @@
         Math.cos(t * 0.00028 * n.drift + n.phase2) *
         motion.nodeJitter;
 
-      // Gentle upward flow, bounded and periodic.
       const rise =
         Math.sin(t * 0.00013 * n.drift + n.phase) *
         motion.speed * 16;
@@ -492,11 +574,10 @@
       ctx.beginPath();
       ctx.arc(n.px, n.py, n.radius, 0, Math.PI * 2);
 
-      ctx.fillStyle = `rgba(130,130,130,${clamp(
-        opacity, 0, 1
-      )})`;
-
+      ctx.globalAlpha = clamp(opacity, 0, 1);
+      ctx.fillStyle = n.fillColor;
       ctx.fill();
+      ctx.globalAlpha = 1;
     }
   }
 
@@ -536,7 +617,9 @@
     createNodes();
     createEdges();
 
-    if (reducedMotion) render(0);
+    if (reducedMotion) {
+      render(0);
+    }
   }
 
   function onPointerMove(e) {
@@ -546,13 +629,17 @@
     mouse.y = e.clientY - rect.top;
     mouse.active = true;
 
-    if (reducedMotion) render(0);
+    if (reducedMotion) {
+      render(0);
+    }
   }
 
   function onPointerLeave() {
     mouse.active = false;
 
-    if (reducedMotion) render(0);
+    if (reducedMotion) {
+      render(0);
+    }
   }
 
   canvas.addEventListener('pointermove', onPointerMove);
@@ -566,8 +653,15 @@
     cancelAnimationFrame(frame);
     observer.disconnect();
 
-    canvas.removeEventListener('pointermove', onPointerMove);
-    canvas.removeEventListener('pointerleave', onPointerLeave);
+    canvas.removeEventListener(
+      'pointermove',
+      onPointerMove
+    );
+
+    canvas.removeEventListener(
+      'pointerleave',
+      onPointerLeave
+    );
   };
 
   resize();
