@@ -14,8 +14,8 @@
     nodes: {
       initialCount: 650,
       maxCount: 950,
-      minSize: 30,
-      maxSize: 46,
+      minSize: 20,
+      maxSize: 40,
       hubProbability: 0.14,
       hubMinSize: 39,
       opacity: 0.84,
