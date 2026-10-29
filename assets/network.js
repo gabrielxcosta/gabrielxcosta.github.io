@@ -12,15 +12,15 @@
     background: 'transparent',
 
     nodes: {
-      initialCount: 650,
+      initialCount: 350,
       maxCount: 950,
-      minSize: 20,
+      minSize: 10,
       maxSize: 40,
-      hubProbability: 0.14,
-      hubMinSize: 39,
+      hubProbability: 0.3,
+      hubMinSize: 25,
       opacity: 0.84,
       growthInterval: 1400,
-      growthBatch: 4,
+      growthBatch: 6,
       growthEnabled: true
     },
 
