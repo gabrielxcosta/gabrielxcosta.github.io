@@ -1,4 +1,3 @@
-
 (() => {
   'use strict';
 
@@ -15,11 +14,11 @@
     nodes: {
       initialCount: 650,
       maxCount: 950,
-      minSize: 12,
-      maxSize: 22,
+      minSize: 30,
+      maxSize: 46,
       hubProbability: 0.14,
-      hubMinSize: 17,
-      opacity: 0.88,
+      hubMinSize: 39,
+      opacity: 0.84,
       growthInterval: 1400,
       growthBatch: 4,
       growthEnabled: true
@@ -37,10 +36,10 @@
       localDistance: 155,
       minNeighbors: 3,
       maxNeighbors: 8,
-      opacity: 0.18,
-      width: 0.8,
+      opacity: 0.42,
+      width: 1.6,
       bridgeProbability: 0.65,
-      bridgeOpacity: 0.14,
+      bridgeOpacity: 0.34,
       growthInterval: 1100,
       maxNewEdges: 5,
       maxTotalDegree: 14
@@ -57,13 +56,13 @@
     centrality: {
       enabled: true,
       low: '#828282',
-      middle: '#a65d65',
+      middle: '#c56b76',
       high: '#b52735',
-      gamma: 0.48,
-      percentile: 0.88,
+      gamma: 0.62,
+      percentile: 0.75,
       updateInterval: 2400,
-      sampleSources: 110,
-      smoothing: 0.12,
+      sampleSources: 160,
+      smoothing: 0.075,
       zeroColor: '#828282'
     },
 
@@ -123,7 +122,6 @@
 
   let frame = 0;
   let running = true;
-  let generation = 0;
   let topologyVersion = 0;
   let centralityVersion = -1;
   let centralityBusy = false;
@@ -900,32 +898,28 @@
         }
       }
 
-      const centralityStrength = Math.max(
+      const strength = Math.max(
         a.visualCentrality,
         b.visualCentrality
       );
 
-      const redMix =
-        centralityStrength * 0.22;
+      const [r, g, blue] = centralityColor(strength);
 
-      const r = Math.round(
-        lerp(130, 181, redMix)
-      );
-
-      const g = Math.round(
-        lerp(130, 39, redMix)
-      );
-
-      const bColor = Math.round(
-        lerp(130, 53, redMix)
+      const visibleOpacity = clamp(
+        opacity + strength * 0.28,
+        0,
+        0.85
       );
 
       ctx.beginPath();
       ctx.moveTo(a.px, a.py);
       ctx.lineTo(b.px, b.py);
 
+      ctx.lineWidth =
+        config.edges.width + strength * 1.1;
+
       ctx.strokeStyle =
-        `rgba(${r},${g},${bColor},${clamp(opacity, 0, 1)})`;
+        `rgba(${r},${g},${blue},${visibleOpacity})`;
 
       ctx.stroke();
     }
@@ -1024,8 +1018,8 @@
     updatePositions(t);
     updateDynamicColors();
 
-    drawEdges();
     drawNodes();
+    drawEdges();
 
     if (!reducedMotion) {
       frame = requestAnimationFrame(render);
@@ -1033,8 +1027,6 @@
   }
 
   function rebuildNetwork() {
-    generation++;
-
     topologyVersion = 0;
     centralityVersion = -1;
 
@@ -1133,7 +1125,6 @@
     running = false;
 
     cancelAnimationFrame(frame);
-
     observer.disconnect();
 
     canvas.removeEventListener(
